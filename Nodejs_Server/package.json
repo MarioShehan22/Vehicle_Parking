@@ -1,0 +1,20 @@
+{
+  "name": "nodemcuserver",
+  "version": "1.0.0",
+  "description": "",
+  "main": "server.js",
+  "scripts": {
+    "dev": "nodemon"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "body-parser": "^1.20.3",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "mongoose": "^8.8.4",
+    "nodemcuserver": "file:",
+    "nodemon": "^3.1.7",
+    "ws": "^8.18.2"
+  }
+}
