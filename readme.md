@@ -166,6 +166,9 @@ let parkingData = {
   // ... other settings
 };
 ```
+## Images
+![Alt text](./assets/screencapture-localhost-3000-2025-06-10-00_09_21.png)
+![Alt text](./assets/screencapture-localhost-3000-api-status-2025-06-10-00_09_31.png)
 
 ## 📖 Usage
 
