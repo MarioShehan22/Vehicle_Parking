@@ -11,7 +11,8 @@ const char* ssid = "Galaxy A13C2FB";
 const char* password = "12345678";
 
 // WebSocket Server Configuration
-const char* websocket_server = "ws://192.168.161.156:3000";
+//const char* websocket_server = "ws://192.168.161.156:3000";
+const char* websocket_server = "ws://13.203.208.127:3001";
 
 // Pin Definitions
 #define SERVO_PIN       5   // Barrier servo motor
