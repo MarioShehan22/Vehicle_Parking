@@ -1,31 +1,34 @@
-const mongoose = require('mongoose');
-
-const SpaceSchema = new mongoose.Schema({
-    id: Number,
-    occupied: Boolean,
-    status: String
-});
-
-const EventSchema = new mongoose.Schema({
-    type: String,
-    timestamp: String,
-    data: mongoose.Schema.Types.Mixed
-}, { _id: false });
+const mongoose = require("mongoose");
+let parkingData = {
+    availableSpaces: 0,
+    totalSpaces: 0,
+    totalEntries: 0,
+    totalExits: 0,
+    barrierOpen: false,
+    wifiConnected: false,
+    uptime: 0,
+    occupancyRate: 0,
+    lastUpdate: null,
+    slots: [],
+    spaces: [],
+    recentEvents: []
+};
 
 const ParkingSchema = new mongoose.Schema({
-    totalSpaces: Number,
     availableSpaces: Number,
-    occupancyRate: Number,
+    totalSpaces: Number,
     totalEntries: Number,
     totalExits: Number,
     barrierOpen: Boolean,
     wifiConnected: Boolean,
     uptime: Number,
+    occupancyRate: Number,
     lastUpdate: Date,
-    spaces: [SpaceSchema],
-    recentEvents: [EventSchema]
+    slots: Array,
+    spaces: Array,
+    recentEvents: Array
 });
 
-const ParkingModel = mongoose.model('Parking', ParkingSchema);
+const ParkingModel = mongoose.model("Parking", ParkingSchema);
 
-module.exports = ParkingModel;
+module.exports = { parkingData, ParkingModel };

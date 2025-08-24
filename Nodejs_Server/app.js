@@ -1,9 +1,14 @@
 const express = require('express');
 const mongoose = require('mongoose');
-const parkingRoutes = require('./routes/parkingRoutes');
 const errorHandler = require('./middleware/errorHandler');
+require('dotenv').config();
+const cors = require('cors');
+
+const parkingRoutes = require('./routes/parkingRoutes');
+const userRoutes = require('./routes/userRoutes');
 
 const app = express();
+app.use(cors());
 
 // Middleware
 app.use(express.json());
@@ -22,6 +27,7 @@ mongoose.connect('mongodb://localhost:27017/parking_system', {
 
 // Routes
 app.use('/api', parkingRoutes);
+app.use('/users', userRoutes);
 
 // Error handler
 app.use(errorHandler);

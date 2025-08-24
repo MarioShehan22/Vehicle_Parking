@@ -1,15 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import Car from '../assets/Car.glb';
 import useWebSocket from 'react-use-websocket';
 import * as THREE from 'three';
 
-const WS_URL = 'ws://localhost:3001';
-
+const WS_URL = 'ws://localhost:3000';
 const User = () => {
     const mountRef = useRef(null);
     const sceneRef = useRef();
     const cameraRef = useRef();
     const rendererRef = useRef();
     const animationIdRef = useRef();
+    const controlsRef = useRef();
 
     const parkingSpacesRef = useRef([]);
     const [parkingSpaces, setParkingSpaces] = useState([]);
@@ -19,38 +22,37 @@ const User = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [currentView, setCurrentView] = useState('overview');
 
-    // WebSocket setup
-    const { sendJsonMessage, lastJsonMessage } = useWebSocket(WS_URL, {
-        onOpen: () => console.log('WS connected'),
-        onClose: () => console.log('WS disconnected'),
-        shouldReconnect: () => true,
-    });
+    const carModelRef = useRef(null); // Store loaded car model for cloning
 
-    // Parse incoming WS messages
-    useEffect(() => {
-        if (!lastJsonMessage) return;
+    // Dummy data
+    const dummyParkingData = {
+        availableSpaces: 6,
+        totalSpaces: 10,
+        spaces: [
+            { id: 1, occupied: false },
+            { id: 2, occupied: true },
+            { id: 3, occupied: false },
+            { id: 4, occupied: true },
+            { id: 5, occupied: false },
+            { id: 6, occupied: false },
+            { id: 7, occupied: true },
+            { id: 8, occupied: false },
+            { id: 9, occupied: true },
+            { id: 10, occupied: false },
+        ],
+    };
 
-        const { type, data, event } = lastJsonMessage;
+    const dummyRfidLogs = [
+        { id: 1, type: 'entry', vehicleId: 'ABC123', time: '2023-10-01 10:00' },
+        { id: 2, type: 'exit', vehicleId: 'XYZ789', time: '2023-10-01 10:05' },
+        { id: 3, type: 'entry', vehicleId: 'DEF456', time: '2023-10-01 10:10' },
+    ];
 
-        if (type === 'initial_data' || type === 'parking_data_update') {
-            if (data) handleParkingData(data);
-        } else if (type === 'event_log' && event) {
-            addRFIDLog(event.type, event.vehicleId || '-', event.timestamp);
-        }
-    }, [lastJsonMessage]);
-
-
-    // Functions to update parking data
+    // Functions to update parking data with dummy values
     const handleParkingData = (data) => {
-        if (!data || typeof data.availableSpaces === 'undefined' || !Array.isArray(data.spaces)) {
-            console.warn("Received invalid parking data:", data);
-            return;
-        }
-
         setAvailableSpaces(data.availableSpaces);
-        setOccupiedSpaces(data.totalSpaces ? data.totalSpaces - data.availableSpaces : data.spaces.length - data.availableSpaces);
+        setOccupiedSpaces(data.totalSpaces - data.availableSpaces);
 
-        // Update slot colors
         const updatedSpaces = data.spaces.map((s) => ({
             ...s,
             color: s.occupied ? 0xff5555 : 0x55ff55,
@@ -60,15 +62,11 @@ const User = () => {
         setParkingSpaces(updatedSpaces);
     };
 
-
-    const addRFIDLog = (type, vehicleId, timestamp) => {
-        setRfidLogs(prev => [{ id: Date.now(), type, vehicleId, time: timestamp }, ...prev].slice(0,10));
-    };
-
-    // Send commands via WS
-    const sendCommand = command => {
-        sendJsonMessage({ type: 'command', command });
-    };
+    // Load initial dummy data
+    useEffect(() => {
+        handleParkingData(dummyParkingData);
+        setRfidLogs(dummyRfidLogs);
+    }, []);
 
     // -- Three.js Initialization --
     const initThreeJS = () => {
@@ -79,9 +77,9 @@ const User = () => {
         scene.background = new THREE.Color(0x0a0a1a);
         sceneRef.current = scene;
 
-        const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-        camera.position.set(0,15,20);
-        camera.lookAt(0,0,0);
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 15, 20);
+        camera.lookAt(0, 0, 0);
         cameraRef.current = camera;
 
         const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -93,33 +91,55 @@ const User = () => {
 
         const ambient = new THREE.AmbientLight(0x404040, 0.6);
         const directional = new THREE.DirectionalLight(0xffffff, 0.8);
-        directional.position.set(10,20,10);
+        directional.position.set(10, 20, 10);
         directional.castShadow = true;
         scene.add(ambient, directional);
 
+        // Add OrbitControls
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controlsRef.current = controls;
+
         createParkingLot(scene);
+
+        // Load car model
+        const loader = new GLTFLoader();
+        loader.load(
+            Car,
+            (gltf) => {
+                carModelRef.current = gltf.scene;
+                carModelRef.current.scale.set(1, 1, 1);
+                console.log('Car model loaded successfully');
+                // Apply dummy data after model loads
+                handleParkingData(dummyParkingData);
+            },
+            undefined,
+            (error) => {
+                console.error('GLB load error:', error);
+            }
+        );
 
         animate();
 
         setTimeout(() => setIsLoading(false), 2000);
     };
 
-    const createParkingLot = scene => {
+    const createParkingLot = (scene) => {
         const ground = new THREE.Mesh(
-            new THREE.PlaneGeometry(25,18),
+            new THREE.PlaneGeometry(25, 18),
             new THREE.MeshLambertMaterial({ color: 0x1a1a1a })
         );
-        ground.rotation.x = -Math.PI/2;
+        ground.rotation.x = -Math.PI / 2;
         ground.receiveShadow = true;
         scene.add(ground);
 
         // Create slots
         const slots = [];
-        for (let row=0; row<5; row++) {
-            ['left','right'].forEach((side, idx) => {
-                const id = row*2 + idx + 1;
-                const x = (side==='left' ? -3.5 : 3.5);
-                const z = row*3.2 - 6.4;
+        for (let row = 0; row < 5; row++) {
+            ['left', 'right'].forEach((side, idx) => {
+                const id = row * 2 + idx + 1;
+                const x = side === 'left' ? -3.5 : 3.5;
+                const z = row * 3.2 - 6.4;
                 const slot = createSlot(scene, id, x, z);
                 slots.push(slot);
             });
@@ -131,46 +151,72 @@ const User = () => {
 
     const createSlot = (scene, id, x, z) => {
         const group = new THREE.Group();
+        group.position.set(x, 0, z);
+
         const mat = new THREE.MeshBasicMaterial({ color: 0x55ff55, transparent: true, opacity: 0.8 });
-        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(6,2.8), mat);
-        mesh.rotation.x = -Math.PI/2;
-        mesh.position.set(x,0.01,z);
+        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(6, 2.8), mat);
+        mesh.rotation.x = -Math.PI / 2;
+        mesh.position.set(0, 0.01, 0);
         group.add(mesh);
 
         scene.add(group);
-        return { id, mesh, occupied: false };
+        return { id, group, mesh, occupied: false, carInstance: null };
     };
 
-    const updateThreeJSSpaces = newSpaces => {
-        parkingSpacesRef.current.forEach(slot => {
-            const newSlot = newSpaces.find(s => s.id === slot.id);
+    const updateThreeJSSpaces = (newSpaces) => {
+        parkingSpacesRef.current.forEach((slot) => {
+            const newSlot = newSpaces.find((s) => s.id === slot.id);
             if (newSlot) {
                 slot.occupied = newSlot.occupied;
                 slot.mesh.material.color.set(newSlot.occupied ? 0xff5555 : 0x55ff55);
+                slot.mesh.visible = !newSlot.occupied; // Hide plane if occupied
+
+                // Add/remove car model
+                if (newSlot.occupied && carModelRef.current) {
+                    if (!slot.carInstance) {
+                        slot.carInstance = carModelRef.current.clone();
+                        slot.carInstance.position.set(0, 0, 0);
+                        slot.carInstance.rotation.y = Math.PI / 2;
+                        slot.group.add(slot.carInstance);
+                    }
+                } else if (slot.carInstance) {
+                    slot.group.remove(slot.carInstance);
+                    slot.carInstance = null;
+                }
             }
         });
     };
 
     const animate = () => {
         animationIdRef.current = requestAnimationFrame(animate);
-        const time = Date.now() * 0.0005;
-        if (cameraRef.current) {
-            cameraRef.current.position.x = Math.cos(time)*25;
-            cameraRef.current.position.z = Math.sin(time)*25;
-            cameraRef.current.lookAt(0,0,0);
+        if (controlsRef.current) {
+            controlsRef.current.enableRotate = currentView === 'detailed';
+            controlsRef.current.update();
+        } else {
+            // Fallback auto-rotation for overview
+            const time = Date.now() * 0.0005;
+            if (cameraRef.current && currentView === 'overview') {
+                cameraRef.current.position.x = Math.cos(time) * 25;
+                cameraRef.current.position.z = Math.sin(time) * 25;
+                cameraRef.current.lookAt(0, 0, 0);
+            }
         }
         rendererRef.current.render(sceneRef.current, cameraRef.current);
     };
 
     const handleResize = () => {
         if (cameraRef.current && rendererRef.current) {
-            cameraRef.current.aspect = window.innerWidth/window.innerHeight;
+            cameraRef.current.aspect = window.innerWidth / window.innerHeight;
             cameraRef.current.updateProjectionMatrix();
             rendererRef.current.setSize(window.innerWidth, window.innerHeight);
         }
     };
 
-    const resetSystem = () => sendCommand('reset_counters');
+    const resetSystem = () => {
+        handleParkingData(dummyParkingData);
+        setRfidLogs(dummyRfidLogs);
+    };
+
     const toggleView = () => {
         const view = currentView === 'overview' ? 'detailed' : 'overview';
         setCurrentView(view);
@@ -179,6 +225,10 @@ const User = () => {
             view === 'overview' ? 15 : 8,
             view === 'overview' ? 20 : 10
         );
+        cameraRef.current.lookAt(0, 0, 0);
+        if (controlsRef.current) {
+            controlsRef.current.reset();
+        }
     };
 
     useEffect(() => {
@@ -210,16 +260,16 @@ const User = () => {
                 </div>
                 <h4 className="text-base mt-6 mb-4">🔄 RFID Activity</h4>
                 <div className="max-h-48 overflow-y-auto space-y-2">
-                    {rfidLogs.map(log => (
-                        <div key={log.id} className={`p-2 bg-white/10 rounded text-xs border-l-2 ${log.type==='entry' ? 'border-green-500' : 'border-red-500'}`}>
-                            <strong>{log.type.toUpperCase()}</strong><br/>ID: {log.vehicleId}<br/>Time: {log.time}
+                    {rfidLogs.map((log) => (
+                        <div key={log.id} className={`p-2 bg-white/10 rounded text-xs border-l-2 ${log.type === 'entry' ? 'border-green-500' : 'border-red-500'}`}>
+                            <strong>{log.type.toUpperCase()}</strong><br />ID: {log.vehicleId}<br />Time: {log.time}
                         </div>
                     ))}
                 </div>
             </div>
             <div className="absolute bottom-5 left-96 right-80 h-24 flex justify-center items-center gap-4">
-                <button onClick={resetSystem} className="...">🔄 Reset System</button>
-                <button onClick={toggleView} className="...">👁️ Toggle View</button>
+                <button onClick={resetSystem} className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 rounded-xl font-medium transition">🔄 Reset System</button>
+                <button onClick={toggleView} className="px-6 py-3 bg-purple-600 hover:bg-purple-700 rounded-xl font-medium transition">👁️ Toggle View</button>
             </div>
         </div>
     );

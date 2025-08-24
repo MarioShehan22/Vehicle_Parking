@@ -1,26 +1,25 @@
-import React, { useState } from 'react';
-import { Eye, EyeOff, Mail, Lock, Phone, Car, User, ArrowRight } from 'lucide-react';
+import React, {useState} from 'react';
+import {ArrowRight, Car, Eye, EyeOff, Lock, Mail, Phone} from 'lucide-react'; // Import relevant icons
+import api from '../config/axios.js';
+import {useNavigate} from "react-router-dom"; // Import axios instance
 
-const AuthForm = () => {
-    const [isLogin, setIsLogin] = useState(true);
+const Login = () => {
     const [showPassword, setShowPassword] = useState(false);
     const [formData, setFormData] = useState({
         email: '',
         password: '',
-        mobile: '',
-        vehicleId: ''
     });
     const [errors, setErrors] = useState({});
-
+    const navigate = useNavigate();
     const handleInputChange = (e) => {
         const { name, value } = e.target;
-        setFormData(prev => ({
+        setFormData((prev) => ({
             ...prev,
             [name]: value
         }));
         // Clear error when user starts typing
         if (errors[name]) {
-            setErrors(prev => ({
+            setErrors((prev) => ({
                 ...prev,
                 [name]: ''
             }));
@@ -44,50 +43,26 @@ const AuthForm = () => {
             newErrors.password = 'Password must be at least 6 characters';
         }
 
-        // Signup-specific validations
-        if (!isLogin) {
-            if (!formData.mobile) {
-                newErrors.mobile = 'Mobile number is required';
-            } else if (!/^\d{10}$/.test(formData.mobile.replace(/\D/g, ''))) {
-                newErrors.mobile = 'Please enter a valid 10-digit mobile number';
-            }
-
-            if (!formData.vehicleId) {
-                newErrors.vehicleId = 'Vehicle ID is required';
-            } else if (formData.vehicleId.length < 3) {
-                newErrors.vehicleId = 'Vehicle ID must be at least 3 characters';
-            }
-        }
-
         setErrors(newErrors);
         return Object.keys(newErrors).length === 0;
     };
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
         if (validateForm()) {
-            if (isLogin) {
-                console.log('Login data:', {
-                    email: formData.email,
-                    password: formData.password
-                });
-                alert('Login successful!');
-            } else {
-                console.log('Signup data:', formData);
-                alert('Signup successful!');
+            try {
+                const response = await api.post('users/login', formData);
+                if(response.status===200){
+                    const expirationDate = new Date();
+                    expirationDate.setDate(expirationDate.getDate()+2);
+                    document.cookie=encodeURIComponent('token') + '=' + encodeURIComponent(response.data) + '; expires=' + expirationDate.toUTCString() + '; path=/';
+                    alert('Login successful!');
+                    navigate('/home');
+                }
+            } catch (error) {
+                setErrors({ form: 'Invalid email or password' });
             }
         }
-    };
-
-    const toggleForm = () => {
-        setIsLogin(!isLogin);
-        setFormData({
-            email: '',
-            password: '',
-            mobile: '',
-            vehicleId: ''
-        });
-        setErrors({});
     };
 
     return (
@@ -105,23 +80,17 @@ const AuthForm = () => {
                     {/* Header */}
                     <div className="text-center mb-8">
                         <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full mb-4">
-                            <Car className="w-8 h-8 text-white" />
+                            <Mail className="w-8 h-8 text-white" />
                         </div>
-                        <h2 className="text-3xl font-bold text-white mb-2">
-                            {isLogin ? 'Welcome Back!' : 'Create Account'}
-                        </h2>
-                        <p className="text-blue-200">
-                            {isLogin ? 'Sign in to your parking account' : 'Join our smart parking system'}
-                        </p>
+                        <h2 className="text-3xl font-bold text-white mb-2">Welcome Back!</h2>
+                        <p className="text-blue-200">Sign in to your parking account</p>
                     </div>
 
                     {/* Form */}
                     <div className="space-y-6">
                         {/* Email Field */}
                         <div className="relative">
-                            <label className="block text-sm font-medium text-blue-200 mb-2">
-                                Email Address
-                            </label>
+                            <label className="block text-sm font-medium text-blue-200 mb-2">Email Address</label>
                             <div className="relative">
                                 <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-blue-300" />
                                 <input
@@ -140,9 +109,7 @@ const AuthForm = () => {
 
                         {/* Password Field */}
                         <div className="relative">
-                            <label className="block text-sm font-medium text-blue-200 mb-2">
-                                Password
-                            </label>
+                            <label className="block text-sm font-medium text-blue-200 mb-2">Password</label>
                             <div className="relative">
                                 <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-blue-300" />
                                 <input
@@ -166,85 +133,36 @@ const AuthForm = () => {
                             )}
                         </div>
 
-                        {/* Signup-only fields */}
-                        {!isLogin && (
-                            <>
-                                {/* Mobile Field */}
-                                <div className="relative">
-                                    <label className="block text-sm font-medium text-blue-200 mb-2">
-                                        Mobile Number
-                                    </label>
-                                    <div className="relative">
-                                        <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-blue-300" />
-                                        <input
-                                            type="tel"
-                                            name="mobile"
-                                            value={formData.mobile}
-                                            onChange={handleInputChange}
-                                            className="w-full pl-12 pr-4 py-3 bg-white/5 border border-white/20 rounded-xl text-white placeholder-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300"
-                                            placeholder="Enter your mobile number"
-                                        />
-                                    </div>
-                                    {errors.mobile && (
-                                        <p className="mt-1 text-sm text-red-400">{errors.mobile}</p>
-                                    )}
-                                </div>
-
-                                {/* Vehicle ID Field */}
-                                <div className="relative">
-                                    <label className="block text-sm font-medium text-blue-200 mb-2">
-                                        Vehicle ID
-                                    </label>
-                                    <div className="relative">
-                                        <User className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-blue-300" />
-                                        <input
-                                            type="text"
-                                            name="vehicleId"
-                                            value={formData.vehicleId}
-                                            onChange={handleInputChange}
-                                            className="w-full pl-12 pr-4 py-3 bg-white/5 border border-white/20 rounded-xl text-white placeholder-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300"
-                                            placeholder="Enter your vehicle ID"
-                                        />
-                                    </div>
-                                    {errors.vehicleId && (
-                                        <p className="mt-1 text-sm text-red-400">{errors.vehicleId}</p>
-                                    )}
-                                </div>
-                            </>
-                        )}
-
                         {/* Submit Button */}
                         <button
                             onClick={handleSubmit}
                             className="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-300 transform hover:scale-105 hover:shadow-lg flex items-center justify-center gap-2 group"
                         >
-                            {isLogin ? 'Sign In' : 'Create Account'}
+                            Sign In
                             <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
                         </button>
 
-                        {/* Forgot Password (Login only) */}
-                        {isLogin && (
-                            <div className="text-center">
-                                <button
-                                    type="button"
-                                    className="text-blue-300 hover:text-white text-sm transition-colors"
-                                >
-                                    Forgot your password?
-                                </button>
-                            </div>
-                        )}
+                        {/* Forgot Password */}
+                        <div className="text-center mt-4">
+                            <button
+                                type="button"
+                                className="text-blue-300 hover:text-white text-sm transition-colors"
+                            >
+                                Forgot your password?
+                            </button>
+                        </div>
                     </div>
 
                     {/* Toggle Form */}
                     <div className="mt-8 text-center">
                         <p className="text-blue-200 mb-4">
-                            {isLogin ? "Don't have an account?" : 'Already have an account?'}
+                            Don't have an account?
                         </p>
                         <button
-                            onClick={toggleForm}
+                            onClick={() => window.location.href = '/signup'}
                             className="text-white font-semibold hover:text-blue-300 transition-colors border-b-2 border-transparent hover:border-blue-300"
                         >
-                            {isLogin ? 'Create Account' : 'Sign In'}
+                            Create Account
                         </button>
                     </div>
                 </div>
@@ -273,32 +191,32 @@ const AuthForm = () => {
             </div>
 
             <style jsx>{`
-        @keyframes blob {
-          0% {
-            transform: translate(0px, 0px) scale(1);
-          }
-          33% {
-            transform: translate(30px, -50px) scale(1.1);
-          }
-          66% {
-            transform: translate(-20px, 20px) scale(0.9);
-          }
-          100% {
-            transform: translate(0px, 0px) scale(1);
-          }
-        }
-        .animate-blob {
-          animation: blob 7s infinite;
-        }
-        .animation-delay-2000 {
-          animation-delay: 2s;
-        }
-        .animation-delay-4000 {
-          animation-delay: 4s;
-        }
-      `}</style>
+                @keyframes blob {
+                    0% {
+                        transform: translate(0px, 0px) scale(1);
+                    }
+                    33% {
+                        transform: translate(30px, -50px) scale(1.1);
+                    }
+                    66% {
+                        transform: translate(-20px, 20px) scale(0.9);
+                    }
+                    100% {
+                        transform: translate(0px, 0px) scale(1);
+                    }
+                }
+                .animate-blob {
+                    animation: blob 7s infinite;
+                }
+                .animation-delay-2000 {
+                    animation-delay: 2s;
+                }
+                .animation-delay-4000 {
+                    animation-delay: 4s;
+                }
+            `}</style>
         </div>
     );
 };
 
-export default AuthForm;
+export default Login;
