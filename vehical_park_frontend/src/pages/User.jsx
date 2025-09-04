@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import Car from '../assets/Car.glb';
+const CAR_URL = new URL('../assets/Car.glb', import.meta.url).href;
 import useWebSocket from 'react-use-websocket';
 import * as THREE from 'three';
 
-const WS_URL = 'ws://localhost:3000';
 const User = () => {
     const mountRef = useRef(null);
     const sceneRef = useRef();
@@ -15,58 +14,111 @@ const User = () => {
     const controlsRef = useRef();
 
     const parkingSpacesRef = useRef([]);
+    const carModelRef = useRef(null);
     const [parkingSpaces, setParkingSpaces] = useState([]);
+    //const [parkingSpaces, setParkingSpaces] = useState([]);
     const [availableSpaces, setAvailableSpaces] = useState(0);
     const [occupiedSpaces, setOccupiedSpaces] = useState(0);
     const [rfidLogs, setRfidLogs] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [currentView, setCurrentView] = useState('overview');
+    const pendingOccupancyRef = useRef([]);
 
-    const carModelRef = useRef(null); // Store loaded car model for cloning
+    const { lastMessage } = useWebSocket("ws://localhost:3000", {
+        onOpen: () => console.log("✅ WebSocket connected!"),
+        onClose: () => console.log("❌ WebSocket disconnected!"),
+        onError: (err) => console.error("⚠️ WebSocket error:", err),
+        shouldReconnect: () => true,
+    });
 
-    // Dummy data
-    const dummyParkingData = {
-        availableSpaces: 6,
-        totalSpaces: 10,
-        spaces: [
-            { id: 1, occupied: false },
-            { id: 2, occupied: true },
-            { id: 3, occupied: false },
-            { id: 4, occupied: true },
-            { id: 5, occupied: false },
-            { id: 6, occupied: false },
-            { id: 7, occupied: true },
-            { id: 8, occupied: false },
-            { id: 9, occupied: true },
-            { id: 10, occupied: false },
-        ],
+    // const dummyRfidLogs = [
+    //     { id: 1, type: 'entry', vehicleId: 'ABC123', time: '2023-10-01 10:00' },
+    //     { id: 2, type: 'exit', vehicleId: 'XYZ789', time: '2023-10-01 10:05' },
+    //     { id: 3, type: 'entry', vehicleId: 'DEF456', time: '2023-10-01 10:10' },
+    // ];
+
+    const recomputeStatsFromSlots = () => {
+        const total = parkingSpacesRef.current.length;
+        const available = parkingSpacesRef.current.filter((s) => !s.occupied).length;
+        setAvailableSpaces(available);
+        setOccupiedSpaces(total - available);
+    };
+    const normalizeDatasetToUpdates = (data) => {
+        const arr = Array.isArray(data?.spaces) ? data.spaces
+            : Array.isArray(data?.slots)  ? data.slots
+                : [];
+        return arr.map((s) => ({
+            id: Number(s.id ?? s.slot ?? s.slotId),
+            occupied: !!s.occupied,
+        })).filter((u) => !!u.id);
     };
 
-    const dummyRfidLogs = [
-        { id: 1, type: 'entry', vehicleId: 'ABC123', time: '2023-10-01 10:00' },
-        { id: 2, type: 'exit', vehicleId: 'XYZ789', time: '2023-10-01 10:05' },
-        { id: 3, type: 'entry', vehicleId: 'DEF456', time: '2023-10-01 10:10' },
-    ];
-
-    // Functions to update parking data with dummy values
+    // ★ Make handleParkingData compute stats from payload, not stale state
     const handleParkingData = (data) => {
-        setAvailableSpaces(data.availableSpaces);
-        setOccupiedSpaces(data.totalSpaces - data.availableSpaces);
+        // Stats from payload if present, otherwise compute from spaces array
+        const total = Number(data?.totalSpaces ?? data?.spaces?.length ?? data?.slots?.length ?? 0);
+        const available = Number(
+            data?.availableSpaces ??
+            (Array.isArray(data?.spaces) ? data.spaces.filter((s) => !s.occupied).length :
+                Array.isArray(data?.slots)  ? data.slots.filter((s) => !s.occupied).length : 0)
+        );
 
-        const updatedSpaces = data.spaces.map((s) => ({
-            ...s,
-            color: s.occupied ? 0xff5555 : 0x55ff55,
-        }));
+        if (!Number.isNaN(available)) setAvailableSpaces(available);
+        if (!Number.isNaN(total)) setOccupiedSpaces(Math.max(0, total - available));
 
-        updateThreeJSSpaces(updatedSpaces);
-        setParkingSpaces(updatedSpaces);
+        const updates = normalizeDatasetToUpdates(data);
+        if (updates.length) updateThreeJSSpaces(updates);
+
+        // Recent events (optional)
+        if (Array.isArray(data?.recentEvents)) {
+            setRfidLogs(data.recentEvents);
+        }
     };
 
-    // Load initial dummy data
+
+    // Handle WebSocket messages
     useEffect(() => {
-        handleParkingData(dummyParkingData);
-        setRfidLogs(dummyRfidLogs);
-    }, []);
+        if (!lastMessage) return;
+        try {
+            const msg = JSON.parse(lastMessage.data);
+
+            switch (msg.type) {
+                case 'initial_data':
+                case 'parking_data_update':
+                case 'status_update': {
+                    if (msg.data) handleParkingData(msg.data);
+                    break;
+                }
+
+                case 'parking_status_update': {
+                    // Accept any of: id | slot | slotId
+                    const id = Number(msg.id ?? msg.slot ?? msg.slotId);
+                    if (!id) break;
+
+                    // Ensure slot exists
+                    const index = id - 1;
+                    while (index >= parkingSpacesRef.current.length) {
+                        const nextId = parkingSpacesRef.current.length + 1;
+                        const newSlot = createSlot(sceneRef.current, nextId, 0, 0);
+                        parkingSpacesRef.current.push(newSlot);
+                    }
+
+                    updateThreeJSSpaces([{ id, occupied: !!msg.occupied }]);
+                    break;
+                }
+
+                case 'new_event': {
+                    setRfidLogs((prev) => [{ id: Date.now(), ...msg.data }, ...prev]);
+                    break;
+                }
+
+                default:
+                    console.warn('⚠️ Unknown message type:', msg.type);
+            }
+        } catch (err) {
+            console.error('❌ Failed to parse WS message:', lastMessage.data, err);
+        }
+    }, [lastMessage]);
 
     // -- Three.js Initialization --
     const initThreeJS = () => {
@@ -95,33 +147,73 @@ const User = () => {
         directional.castShadow = true;
         scene.add(ambient, directional);
 
-        // Add OrbitControls
         const controls = new OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
         controlsRef.current = controls;
 
+        // Build a 10-slot lot (5 rows x 2 sides). This is fine even if totalSpaces=1;
+        // slot 1 will still be used and visible. Change if you want dynamic sizing.
         createParkingLot(scene);
 
-        // Load car model
+        // Load and normalize Car.glb
         const loader = new GLTFLoader();
         loader.load(
-            Car,
+            CAR_URL,
             (gltf) => {
-                carModelRef.current = gltf.scene;
-                carModelRef.current.scale.set(1, 1, 1);
-                console.log('Car model loaded successfully');
-                // Apply dummy data after model loads
-                handleParkingData(dummyParkingData);
+                const root = gltf.scene;
+                root.traverse((obj) => {
+                    if (obj.isMesh) {
+                        obj.castShadow = true;
+                        obj.receiveShadow = true;
+                        obj.visible = true;
+                    }
+                });
+
+                // Compute bbox before scaling
+                root.updateMatrixWorld(true);
+                const box = new THREE.Box3().setFromObject(root);
+                const size = new THREE.Vector3();
+                const center = new THREE.Vector3();
+                box.getSize(size);
+                box.getCenter(center);
+
+                // Fit into slot (6 x 2.8) → use safe 5.4 x 2.4
+                const targetLength = 5.4; // along Z
+                const targetWidth  = 2.4; // along X
+                const sx = targetWidth  / (size.x || 1);
+                const sz = targetLength / (size.z || 1);
+                const s = Math.min(sx, sz);
+                root.scale.setScalar(s);
+
+                // Recalc bbox after scale
+                root.updateMatrixWorld(true);
+                const box2 = new THREE.Box3().setFromObject(root);
+                const center2 = new THREE.Vector3();
+                box2.getCenter(center2);
+
+                // Lift to ground (y=0) and center at (0,0,0) in the slot group
+                const liftY = -box2.min.y;
+                root.position.set(-center2.x, liftY, -center2.z);
+
+                carModelRef.current = root;
+                console.log('Car model loaded & normalized');
+
+                // TEMP sanity check (remove later if not needed):
+                // If your server hasn't sent anything yet, this will show a car in slot 1.
+                // if (!pendingOccupancyRef.current.length) updateThreeJSSpaces([{ id: 1, occupied: true }]);
+
+                // Replay queued updates now that cloning is possible
+                if (pendingOccupancyRef.current.length) {
+                    updateThreeJSSpaces(pendingOccupancyRef.current);
+                    pendingOccupancyRef.current = [];
+                }
             },
             undefined,
-            (error) => {
-                console.error('GLB load error:', error);
-            }
+            (err) => console.error('GLB load error:', err)
         );
 
         animate();
-
-        setTimeout(() => setIsLoading(false), 2000);
+        setTimeout(() => setIsLoading(false), 600);
     };
 
     const createParkingLot = (scene) => {
@@ -133,7 +225,6 @@ const User = () => {
         ground.receiveShadow = true;
         scene.add(ground);
 
-        // Create slots
         const slots = [];
         for (let row = 0; row < 5; row++) {
             ['left', 'right'].forEach((side, idx) => {
@@ -146,7 +237,9 @@ const User = () => {
         }
 
         parkingSpacesRef.current = slots;
-        setParkingSpaces(slots);
+        // Optional mirror to React state if you display per-slot info
+        // setParkingSpaces(slots);
+        recomputeStatsFromSlots();
     };
 
     const createSlot = (scene, id, x, z) => {
@@ -163,43 +256,69 @@ const User = () => {
         return { id, group, mesh, occupied: false, carInstance: null };
     };
 
-    const updateThreeJSSpaces = (newSpaces) => {
-        parkingSpacesRef.current.forEach((slot) => {
-            const newSlot = newSpaces.find((s) => s.id === slot.id);
-            if (newSlot) {
-                slot.occupied = newSlot.occupied;
-                slot.mesh.material.color.set(newSlot.occupied ? 0xff5555 : 0x55ff55);
-                slot.mesh.visible = !newSlot.occupied; // Hide plane if occupied
+    // ★ Make updateThreeJSSpaces robust and model-aware
+    const updateThreeJSSpaces = (updates) => {
+        // If model isn't ready yet, queue *and return* (don’t half-apply)
+        if (!carModelRef.current) {
+            pendingOccupancyRef.current.push(...updates);
+            return;
+        }
 
-                // Add/remove car model
-                if (newSlot.occupied && carModelRef.current) {
-                    if (!slot.carInstance) {
-                        slot.carInstance = carModelRef.current.clone();
-                        slot.carInstance.position.set(0, 0, 0);
-                        slot.carInstance.rotation.y = Math.PI / 2;
-                        slot.group.add(slot.carInstance);
-                    }
-                } else if (slot.carInstance) {
-                    slot.group.remove(slot.carInstance);
-                    slot.carInstance = null;
+        updates.forEach((u) => {
+            const targetId = Number(u.id ?? u.slot ?? u.slotId);
+            if (!targetId) return;
+
+            // Ensure the target slot exists (defensive)
+            while (targetId - 1 >= parkingSpacesRef.current.length) {
+                const nextId = parkingSpacesRef.current.length + 1;
+                const newSlot = createSlot(sceneRef.current, nextId, 0, 0);
+                parkingSpacesRef.current.push(newSlot);
+            }
+
+            const slot = parkingSpacesRef.current.find((s) => s.id === targetId);
+            if (!slot) return;
+
+            const willBeOccupied = !!u.occupied;
+            slot.occupied = willBeOccupied;
+
+            // Floor color/visibility
+            if (slot.mesh) {
+                slot.mesh.material.color.set(willBeOccupied ? 0xff5555 : 0x55ff55);
+                slot.mesh.visible = !willBeOccupied;
+            }
+
+            // Add/remove car
+            if (willBeOccupied) {
+                if (!slot.carInstance) {
+                    const car = carModelRef.current.clone(true);
+                    // Face outward depending on column (left column faces right)
+                    const facingRight = slot.group.position.x < 0;
+                    car.rotation.y = facingRight ? Math.PI / 2 : -Math.PI / 2;
+                    car.position.set(0, 0, 0);
+                    slot.group.add(car);
+                    slot.carInstance = car;
                 }
+            } else if (slot.carInstance) {
+                slot.group.remove(slot.carInstance);
+                slot.carInstance = null;
             }
         });
+
+        // keep counters in sync with authoritative slots
+        //recomputeStatsFromSlots();
     };
+
 
     const animate = () => {
         animationIdRef.current = requestAnimationFrame(animate);
         if (controlsRef.current) {
             controlsRef.current.enableRotate = currentView === 'detailed';
             controlsRef.current.update();
-        } else {
-            // Fallback auto-rotation for overview
+        } else if (cameraRef.current && currentView === 'overview') {
             const time = Date.now() * 0.0005;
-            if (cameraRef.current && currentView === 'overview') {
-                cameraRef.current.position.x = Math.cos(time) * 25;
-                cameraRef.current.position.z = Math.sin(time) * 25;
-                cameraRef.current.lookAt(0, 0, 0);
-            }
+            cameraRef.current.position.x = Math.cos(time) * 25;
+            cameraRef.current.position.z = Math.sin(time) * 25;
+            cameraRef.current.lookAt(0, 0, 0);
         }
         rendererRef.current.render(sceneRef.current, cameraRef.current);
     };
@@ -212,10 +331,10 @@ const User = () => {
         }
     };
 
-    const resetSystem = () => {
-        handleParkingData(dummyParkingData);
-        setRfidLogs(dummyRfidLogs);
-    };
+    // const resetSystem = () => {
+    //     //handleParkingData(parkingSpaces);
+    //     setRfidLogs(dummyRfidLogs);
+    // };
 
     const toggleView = () => {
         const view = currentView === 'overview' ? 'detailed' : 'overview';
@@ -226,9 +345,7 @@ const User = () => {
             view === 'overview' ? 20 : 10
         );
         cameraRef.current.lookAt(0, 0, 0);
-        if (controlsRef.current) {
-            controlsRef.current.reset();
-        }
+        controlsRef.current?.reset();
     };
 
     useEffect(() => {
@@ -240,6 +357,12 @@ const User = () => {
             rendererRef.current?.dispose();
             mountRef.current?.removeChild(rendererRef.current?.domElement);
         };
+    }, []);
+
+    // Load dummy data initially
+    useEffect(() => {
+        //handleParkingData(parkingSpaces);
+        //setRfidLogs(dummyRfidLogs);
     }, []);
 
     return (
@@ -268,7 +391,7 @@ const User = () => {
                 </div>
             </div>
             <div className="absolute bottom-5 left-96 right-80 h-24 flex justify-center items-center gap-4">
-                <button onClick={resetSystem} className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 rounded-xl font-medium transition">🔄 Reset System</button>
+                {/*<button onClick={resetSystem} className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 rounded-xl font-medium transition">🔄 Reset System</button>*/}
                 <button onClick={toggleView} className="px-6 py-3 bg-purple-600 hover:bg-purple-700 rounded-xl font-medium transition">👁️ Toggle View</button>
             </div>
         </div>

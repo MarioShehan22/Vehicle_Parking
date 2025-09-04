@@ -1,13 +1,41 @@
-let { parkingData } = require('../models/parkingModel'); // Use let instead of const
+let { parkingData } = require('../models/parkingModel'); // shared object from model
 const { logEvent } = require('../utils/logger');
 const { ParkingModel } = require('../models/parkingModel');
+
+// Ensure parkingData is initialized with defaults
+function ensureParkingData() {
+    if (!parkingData) {
+        parkingData = {
+            availableSpaces: 0,
+            totalSpaces: 0,
+            totalEntries: 0,
+            totalExits: 0,
+            barrierOpen: false,
+            wifiConnected: false,
+            uptime: 0,
+            occupancyRate: 0,
+            lastUpdate: null,
+            slots: [],
+            spaces: [],
+            recentEvents: []
+        };
+    }
+}
+
+// Save to DB safely
+async function saveParkingData() {
+    try {
+        await ParkingModel.findOneAndUpdate({}, parkingData, { upsert: true, new: true });
+        console.log("✅ Parking data saved to DB");
+    } catch (err) {
+        console.error("❌ Error saving parking data:", err);
+    }
+}
 
 // Handle incoming WebSocket messages
 exports.handleMessage = async (ws, data) => {
     console.log('Received message:', data);
-
-    // Ensure parkingData is properly initialized
-    //initializeParkingData();
+    ensureParkingData();
 
     // Get broadcast function safely
     let broadcastToWebClients;
@@ -26,138 +54,110 @@ exports.handleMessage = async (ws, data) => {
         return Math.round((occupiedSpaces / parkingData.totalSpaces) * 100);
     };
 
-    // Handle different message types
     switch (data.type) {
         case 'status_update':
-            // Update parking data with the new status
-            parkingData.availableSpaces = data.available_spaces || parkingData.availableSpaces;
-            parkingData.totalSpaces = data.total_spaces || parkingData.totalSpaces;
-            parkingData.totalEntries = data.total_entries || parkingData.totalEntries;
-            parkingData.totalExits = data.total_exits || parkingData.totalExits;
-            parkingData.barrierOpen = data.barrier_open !== undefined ? data.barrier_open : parkingData.barrierOpen;
-            parkingData.wifiConnected = data.wifi_connected !== undefined ? data.wifi_connected : parkingData.wifiConnected;
-            parkingData.uptime = data.uptime || parkingData.uptime;
+            parkingData.availableSpaces = data.available_spaces ?? parkingData.availableSpaces;
+            parkingData.totalSpaces = data.total_spaces ?? parkingData.totalSpaces;
+            parkingData.totalEntries = data.total_entries ?? parkingData.totalEntries;
+            parkingData.totalExits = data.total_exits ?? parkingData.totalExits;
+            parkingData.barrierOpen = data.barrier_open ?? parkingData.barrierOpen;
+            parkingData.wifiConnected = data.wifi_connected ?? parkingData.wifiConnected;
+            parkingData.uptime = data.uptime ?? parkingData.uptime;
             parkingData.occupancyRate = calculateOccupancyRate();
             parkingData.lastUpdate = new Date();
 
-            // Update spaces if provided
             if (data.slots && Array.isArray(data.slots)) {
                 parkingData.slots = data.slots.map(slot => ({
                     slotId: slot.slot,
-                    occupied: slot.occupied !== undefined ? slot.occupied : false,
+                    occupied: slot.occupied ?? false,
                     status: slot.occupied ? 'occupied' : 'available',
                 }));
             }
 
             await saveParkingData();
 
-            // // Log event
-            // logEvent({
-            //     type: 'status_update',
-            //     availableSpaces: parkingData.availableSpaces,
-            //     timestamp: new Date()
-            // });
-
-            // Broadcast updated parking data to web clients
             if (broadcastToWebClients) {
-                broadcastToWebClients({
-                    type: 'parking_data_update',
-                    data: parkingData
-                });
+                broadcastToWebClients({ type: 'parking_data_update', data: parkingData });
             }
             break;
 
         case 'vehicle_entry':
-            parkingData.totalEntries = data.total_entries || parkingData.totalEntries;
-            parkingData.availableSpaces = data.available_spaces !== undefined ? data.available_spaces : parkingData.availableSpaces;
+            parkingData.totalEntries = data.total_entries ?? parkingData.totalEntries;
+            parkingData.availableSpaces = data.available_spaces ?? parkingData.availableSpaces;
             parkingData.occupancyRate = calculateOccupancyRate();
             parkingData.lastUpdate = new Date();
 
-            // Log event
-            // logEvent({
-            //     type: 'vehicle_entry',
-            //     entryAllowed: data.entry_allowed,
-            //     timestamp: new Date()
-            // });
-
-            // Add to recent events
             parkingData.recentEvents.unshift({
                 type: 'vehicle_entry',
                 timestamp: new Date(),
                 data: { entryAllowed: data.entry_allowed, availableSpaces: parkingData.availableSpaces }
             });
 
-            // Keep only last 50 events
             if (parkingData.recentEvents.length > 50) {
                 parkingData.recentEvents = parkingData.recentEvents.slice(0, 50);
             }
 
-            // Broadcast to web clients
             if (broadcastToWebClients) {
                 broadcastToWebClients({ type: 'vehicle_entry', data });
             }
             break;
 
         case 'vehicle_exit':
-            parkingData.totalExits = data.total_exits || parkingData.totalExits;
-            parkingData.availableSpaces = data.available_spaces !== undefined ? data.available_spaces : parkingData.availableSpaces;
+            parkingData.totalExits = data.total_exits ?? parkingData.totalExits;
+            parkingData.availableSpaces = data.available_spaces ?? parkingData.availableSpaces;
             parkingData.occupancyRate = calculateOccupancyRate();
             parkingData.lastUpdate = new Date();
 
-            // Log event
-            // logEvent({
-            //     type: 'vehicle_exit',
-            //     timestamp: new Date()
-            // });
-
-            // Add to recent events
             parkingData.recentEvents.unshift({
                 type: 'vehicle_exit',
                 timestamp: new Date(),
                 data: { availableSpaces: parkingData.availableSpaces }
             });
 
-            // Keep only last 50 events
             if (parkingData.recentEvents.length > 50) {
                 parkingData.recentEvents = parkingData.recentEvents.slice(0, 50);
             }
 
-            // Broadcast to web clients
             if (broadcastToWebClients) {
                 broadcastToWebClients({ type: 'vehicle_exit', data });
             }
             break;
 
-        case 'space_update':
-            const spaceIndex = (data.slot || 1) - 1;
-            if (spaceIndex >= 0 && spaceIndex < parkingData.spaces.length) {
-                // Update the space's status
-                parkingData.spaces[spaceIndex] = {
+        case 'parking_status_update':
+            {
+                const index = (data.slot || 1) - 1;
+
+                // expand spaces array if slot number exceeds current length
+                while (index >= parkingData.spaces.length) {
+                    parkingData.spaces.push({
+                        slotId: parkingData.spaces.length + 1,
+                        occupied: false,
+                        status: 'available'
+                    });
+                }
+
+                parkingData.spaces[index] = {
                     slotId: data.slot,
-                    occupied: data.occupied !== undefined ? data.occupied : false,
+                    occupied: data.occupied ?? false,
                     status: data.occupied ? 'occupied' : 'available'
                 };
 
                 parkingData.lastUpdate = new Date();
 
-                // Log space update
-                logEvent({
-                    type: 'space_update',
-                    slotId: data.slot,
-                    timestamp: new Date()
-                });
+                // Recalculate availableSpaces & occupancy
+                parkingData.availableSpaces = parkingData.spaces.filter(s => !s.occupied).length;
+                parkingData.occupancyRate = parkingData.totalSpaces
+                    ? Math.round(((parkingData.totalSpaces - parkingData.availableSpaces) / parkingData.totalSpaces) * 100)
+                    : 0;
 
-                // Broadcast space update to web clients
+                await saveParkingData();
+
                 if (broadcastToWebClients) {
                     broadcastToWebClients({
-                        type: 'space_update',
-                        slotId: data.slot,
-                        occupied: data.occupied,
-                        status: data.occupied ? 'occupied' : 'available'
+                        type: 'parking_data_update',
+                        data: parkingData
                     });
                 }
-            } else {
-                console.error(`Invalid space index: ${spaceIndex} for space_id: ${data.slotId}`);
             }
             break;
 
@@ -165,24 +165,12 @@ exports.handleMessage = async (ws, data) => {
             parkingData.barrierOpen = data.status === 'OPEN';
             parkingData.lastUpdate = new Date();
 
-            // Log event
-            // logEvent({
-            //     type: 'barrier_status',
-            //     status: data.status,
-            //     timestamp: new Date()
-            // });
-
-            // Broadcast to web clients
             if (broadcastToWebClients) {
-                broadcastToWebClients({
-                    type: 'barrier_status',
-                    status: data.status
-                });
+                broadcastToWebClients({ type: 'barrier_status', status: data.status });
             }
             break;
 
         case 'command':
-            // Forward the command to the Arduino client
             const { command, payload } = data;
             try {
                 const websocketService = require('../services/websocketService');
@@ -206,17 +194,8 @@ exports.handleMessage = async (ws, data) => {
     }
 };
 
-async function saveParkingData() {
-    try {
-        ParkingModel.findOneAndUpdate({}, parkingData, { upsert: true, new: true });
-        console.log("✅ Parking data saved to DB");
-    } catch (err) {
-        console.error("❌ Error saving parking data:", err);
-    }
-}
-
-// Export parkingData getter function
+// Export parkingData getter
 exports.getParkingData = () => {
-    //initializeParkingData();
+    ensureParkingData();
     return parkingData;
 };
