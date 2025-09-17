@@ -168,8 +168,8 @@ function SessionsPanel() {
                     ◀ Prev
                 </button>
                 <span className="px-2">
-          Page <b>{page}</b> / {totalPages}
-        </span>
+                  Page <b>{page}</b> / {totalPages}
+                </span>
                 <button
                     className="px-3 py-2 rounded bg-gray-200 hover:bg-gray-300 disabled:opacity-50"
                     onClick={() => setPage((p) => p + 1)}

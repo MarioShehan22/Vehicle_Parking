@@ -1,5 +1,30 @@
 import React, { useEffect, useState } from "react";
 import useWebSocket, { ReadyState } from "react-use-websocket";
+import SessionsPanel from "../components/fetchSessions.jsx";
+import UsersTable from "../components/UsersTable.jsx";
+
+function normalizeEvent(e) {
+    const ts =
+        typeof e?.timestamp === "number"
+            ? e.timestamp
+            : e?.timestamp
+                ? Date.parse(e.timestamp)
+                : Date.now();
+
+    const label =
+        (e?.data && (e.data.message || e.data.action || e.data.status)) ||
+        (e?.type ? e.type.replace(/_/g, " ") : "event");
+
+    const slot =
+        e?.data?.slot ??
+        e?.data?.slotId ??
+        e?.data?.space ??
+        e?.data?.spaceId ??
+        e?.data?.bay ??
+        undefined;
+
+    return { timestamp: ts, label: String(label), slot };
+}
 
 export default function Dashboard() {
     const [parkingData, setParkingData] = useState(null);
@@ -13,7 +38,6 @@ export default function Dashboard() {
         shouldReconnect: () => true,
     });
 
-    // Update connection status text
     useEffect(() => {
         switch (readyState) {
             case ReadyState.OPEN:
@@ -33,45 +57,47 @@ export default function Dashboard() {
         }
     }, [readyState]);
 
-    // Handle incoming messages
     useEffect(() => {
-        if (lastMessage) {
-            try {
-                const data = JSON.parse(lastMessage.data);
-                console.log("📩 Received message:", data);
+        if (!lastMessage) return;
 
-                switch (data.type) {
-                    case "initial_data": // <-- handle initial payload from backend
-                        setParkingData(data.data);
-                        if (data.data.events) {
-                            setEvents(data.data.events);
-                        }
-                        break;
+        try {
+            const msg = JSON.parse(lastMessage.data);
+            console.log("📩 Received message:", msg);
 
-                    case "status_update":
-                    case "parking_data_update":
-                        setParkingData(data.data);
-                        break;
-
-                    case "new_event":
-                        setEvents((prev) => [
-                            { timestamp: Date.now(), ...data.data },
-                            ...prev,
-                        ]);
-                        break;
-
-                    default:
-                        console.warn("⚠️ Unknown message type:", data.type);
+            switch (msg.type) {
+                case "initial_data": {
+                    setParkingData(msg.data);
+                    if (Array.isArray(msg.data?.recentEvents)) {
+                        setEvents(msg.data.recentEvents.map(normalizeEvent));
+                    } else if (Array.isArray(msg.data?.events)) {
+                        setEvents(msg.data.events.map(normalizeEvent));
+                    }
+                    break;
                 }
-            } catch (err) {
-                console.error("❌ Failed to parse WS message:", lastMessage.data, err);
+                case "parking_data_update":
+                case "status_update": {
+                    setParkingData(msg.data);
+                    if (Array.isArray(msg.data?.recentEvents)) {
+                        setEvents(msg.data.recentEvents.map(normalizeEvent));
+                    }
+                    break;
+                }
+                case "new_event": {
+                    const normalized = normalizeEvent(msg.data);
+                    setEvents((prev) => [normalized, ...prev]);
+                    break;
+                }
+                default:
+                    console.warn("⚠️ Unknown message type:", msg.type);
             }
+        } catch (err) {
+            console.error("❌ Failed to parse WS message:", lastMessage.data, err);
         }
     }, [lastMessage]);
 
     return (
         <div className="p-6">
-            <h1 className="text-2xl font-bold mb-4">🚗 Smart Parking Dashboard</h1>
+            <h1 className="text-2xl font-bold mb-4">🚗 Smart Parking Admin Dashboard</h1>
             <p className="mb-4">Connection: {connectionStatus}</p>
 
             {parkingData ? (
@@ -101,13 +127,19 @@ export default function Dashboard() {
 
             <h2 className="text-xl font-bold mt-6 mb-2">Recent Events</h2>
             <ul className="bg-gray-100 p-4 rounded max-h-60 overflow-y-auto">
+                {events.length === 0 && (
+                    <li className="text-sm italic">No recent events.</li>
+                )}
                 {events.map((event, idx) => (
-                    <li key={idx} className="border-b py-1 text-sm">
-                        [{new Date(event.timestamp).toLocaleTimeString()}]{" "}
-                        {event.action} (Slot {event.slot})
+                    <li key={`${event.timestamp}-${idx}`} className="border-b py-1 text-sm">
+                        [{new Date(event.timestamp).toLocaleTimeString()}] {event.label}
+                        {event.slot !== undefined ? ` (Slot ${event.slot})` : ""}
                     </li>
                 ))}
             </ul>
+            <SessionsPanel/>
+            <br/>
+            <UsersTable/>
         </div>
     );
 }

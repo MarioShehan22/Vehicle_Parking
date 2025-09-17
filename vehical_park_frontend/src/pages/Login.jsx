@@ -141,16 +141,6 @@ const Login = () => {
                             Sign In
                             <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
                         </button>
-
-                        {/* Forgot Password */}
-                        <div className="text-center mt-4">
-                            <button
-                                type="button"
-                                className="text-blue-300 hover:text-white text-sm transition-colors"
-                            >
-                                Forgot your password?
-                            </button>
-                        </div>
                     </div>
 
                     {/* Toggle Form */}

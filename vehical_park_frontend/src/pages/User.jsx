@@ -381,14 +381,6 @@ const User = () => {
                     <div className="p-4 bg-white/10 rounded-xl border-l-4 border-green-500"><div className="text-xs opacity-80">Available</div><div className="text-2xl">{availableSpaces}</div></div>
                     <div className="p-4 bg-white/10 rounded-xl border-l-4 border-red-500"><div className="text-xs opacity-80">Occupied</div><div className="text-2xl">{occupiedSpaces}</div></div>
                 </div>
-                <h4 className="text-base mt-6 mb-4">🔄 RFID Activity</h4>
-                <div className="max-h-48 overflow-y-auto space-y-2">
-                    {rfidLogs.map((log) => (
-                        <div key={log.id} className={`p-2 bg-white/10 rounded text-xs border-l-2 ${log.type === 'entry' ? 'border-green-500' : 'border-red-500'}`}>
-                            <strong>{log.type.toUpperCase()}</strong><br />ID: {log.vehicleId}<br />Time: {log.time}
-                        </div>
-                    ))}
-                </div>
             </div>
             <div className="absolute bottom-5 left-96 right-80 h-24 flex justify-center items-center gap-4">
                 {/*<button onClick={resetSystem} className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 rounded-xl font-medium transition">🔄 Reset System</button>*/}
