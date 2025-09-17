@@ -473,3 +473,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 **Made with ❤️ for the IoT and Arduino community**
 
 *If you find this project helpful, please consider giving it a ⭐ on GitHub!*
+
+## 📜 License
+
+This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
+
+
