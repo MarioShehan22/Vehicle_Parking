@@ -232,7 +232,7 @@ let parkingData = { totalSpaces: 5 };
 ## 📞 Support
 - GitHub Issues for bugs  
 - Discussions for Q&A  
-- Email: `your.email@example.com`  
+- Email: `marioshehan025@gmail.com`  
 
 ---
 
